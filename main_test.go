@@ -71,6 +71,18 @@ func TestRejectsBlankTitle(t *testing.T) {
 	}
 }
 
+// REQ-03 #2: 공백 세 칸인 제목은 안내 문구와 함께 거절되고 목록을 바꾸지 않는다.
+func TestRejectsWhitespaceOnlyTitle(t *testing.T) {
+	h := (&todoStore{}).handler()
+	w := request(t, h, http.MethodPost, `{"title":"   "}`)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "제목을 입력해 주세요.") {
+		t.Fatalf("whitespace-only title: %d %s", w.Code, w.Body)
+	}
+	if got := request(t, h, http.MethodGet, "").Body.String(); !strings.Contains(got, `"todos":[]`) {
+		t.Fatalf("list changed: %s", got)
+	}
+}
+
 // REQ-04: 제목 길이는 앞뒤 공백 제거 후 유니코드 코드 포인트로 200자까지 허용한다.
 func TestTitleLengthUsesRunes(t *testing.T) {
 	h := (&todoStore{}).handler()
