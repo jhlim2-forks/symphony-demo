@@ -198,6 +198,75 @@ func TestEmptyMessageVisibilityFollowsTodoCount(t *testing.T) {
 	}
 }
 
+// REQ-10, REQ-11, REQ-14: 추가와 목록 응답에 지정한 날짜 또는 null을 담는다.
+func TestDueDateRoundTripsAndMayBeOmitted(t *testing.T) {
+	h := (&todoStore{}).handler()
+	for _, body := range []string{`{"title":"윤일","dueDate":"2024-02-29"}`, `{"title":"날짜 없음"}`, `{"title":"빈 날짜","dueDate":""}`, `{"title":"null 날짜","dueDate":null}`} {
+		w := request(t, h, http.MethodPost, body)
+		if w.Code != http.StatusCreated || !strings.Contains(w.Body.String(), `"dueDate"`) {
+			t.Fatalf("create %s: %d %s", body, w.Code, w.Body)
+		}
+	}
+	listed := request(t, h, http.MethodGet, "")
+	var got struct {
+		Todos []Todo `json:"todos"`
+	}
+	if err := json.Unmarshal(listed.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Code != http.StatusOK || len(got.Todos) != 4 || got.Todos[0].DueDate == nil || *got.Todos[0].DueDate != "2024-02-29" {
+		t.Fatalf("unexpected dated todo list: %#v", got.Todos)
+	}
+	for _, item := range got.Todos[1:] {
+		if item.DueDate != nil {
+			t.Errorf("expected null date: %#v", item)
+		}
+	}
+}
+
+// REQ-12, REQ-13: 날짜 형식 오류와 달력에 없는 날짜를 구분해 거절한다.
+func TestRejectsInvalidDueDatesWithoutChangingList(t *testing.T) {
+	h := (&todoStore{}).handler()
+	for _, tc := range []struct{ date, message string }{
+		{"2026-1-5", "마감일은 YYYY-MM-DD 형식으로 입력해 주세요."},
+		{" 2026-10-31 ", "마감일은 YYYY-MM-DD 형식으로 입력해 주세요."},
+		{"2026-02-30", "달력에 없는 날짜입니다. 다시 확인해 주세요."},
+		{"2026-02-29", "달력에 없는 날짜입니다. 다시 확인해 주세요."},
+		{"2026-13-01", "달력에 없는 날짜입니다. 다시 확인해 주세요."},
+	} {
+		body, _ := json.Marshal(map[string]string{"title": "테스트", "dueDate": tc.date})
+		w := request(t, h, http.MethodPost, string(body))
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), tc.message) {
+			t.Errorf("%s: %d %s", tc.date, w.Code, w.Body)
+		}
+	}
+	if got := request(t, h, http.MethodGet, "").Body.String(); !strings.Contains(got, `"todos":[]`) {
+		t.Fatalf("invalid date changed list: %s", got)
+	}
+	badType := request(t, h, http.MethodPost, `{"title":"테스트","dueDate":20261031}`)
+	if badType.Code != http.StatusBadRequest || !strings.Contains(badType.Body.String(), "요청 형식이 올바르지 않습니다.") {
+		t.Fatalf("bad date type: %d %s", badType.Code, badType.Body)
+	}
+	badBoth := request(t, h, http.MethodPost, `{"title":"","dueDate":"2026-1-5"}`)
+	if !strings.Contains(badBoth.Body.String(), "제목을 입력해 주세요.") {
+		t.Fatalf("title error must come first: %s", badBoth.Body)
+	}
+}
+
+// REQ-15, REQ-16: 화면에 날짜 입력과 날짜 표시 처리를 제공한다.
+func TestDueDateFormAndRendering(t *testing.T) {
+	b, err := os.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{`type="date"`, `id="due-date"`, `마감일(선택)`, `className = 'due-date'`, "` 마감일 ${item.dueDate}`", `dueDate: dueDateInput.value`, `dueDateInput.value = ''`} {
+		if !strings.Contains(string(b), fragment) {
+			t.Errorf("index.html missing %q", fragment)
+		}
+	}
+}
+
+
 // REQ-09: 보관 안내는 목록 아래 별도 문단으로 항상 화면에 포함된다.
 func TestStorageNoticeAlwaysAppearsBelowTodoList(t *testing.T) {
 	const notice = "할 일은 이 서버에만 잠시 보관되며, 서버를 다시 켜면 사라집니다."

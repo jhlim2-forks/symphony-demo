@@ -11,12 +11,15 @@
     button { padding: .7rem 1rem; }
     #error { color: #b42318; min-height: 1.5em; }
     li { padding: .4rem 0; }
+    .due-date { font-size: .9em; color: #666; }
   </style>
 </head>
 <body>
   <h1>할 일 목록</h1>
   <form id="todo-form">
     <input id="title" aria-label="할 일 제목" placeholder="할 일을 입력하세요" maxlength="200">
+    <label for="due-date">마감일(선택)</label>
+    <input id="due-date" type="date" aria-label="마감일(선택)">
     <button type="submit">추가</button>
   </form>
   <p id="error" role="alert"></p>
@@ -32,7 +35,15 @@
       emptyMessage.hidden = items.length !== 0;
       for (const item of items) {
         const row = document.createElement('li');
-        row.textContent = item.title;
+        const title = document.createElement('span');
+        title.textContent = item.title;
+        row.append(title);
+        if (item.dueDate !== null) {
+          const dueDate = document.createElement('span');
+          dueDate.className = 'due-date';
+          dueDate.textContent = ` 마감일 ${item.dueDate}`;
+          row.append(dueDate);
+        }
         list.append(row);
       }
     }
@@ -45,13 +56,15 @@
       event.preventDefault();
       error.textContent = '';
       const input = document.getElementById('title');
+      const dueDateInput = document.getElementById('due-date');
       const response = await fetch('/api/todos', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: input.value })
+        body: JSON.stringify({ title: input.value, dueDate: dueDateInput.value })
       });
       const data = await response.json();
       if (!response.ok) { error.textContent = data.error; return; }
       input.value = '';
+      dueDateInput.value = '';
       await refresh();
     });
     refresh();
