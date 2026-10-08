@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Todo struct {
-	ID    int    `json:"id"`
-	Title string `json:"title"`
+	ID      int     `json:"id"`
+	Title   string  `json:"title"`
+	DueDate *string `json:"dueDate"`
 }
 
 type todoStore struct {
@@ -77,20 +79,55 @@ func (s *todoStore) todos(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
 		return
 	}
+	title = strings.TrimSpace(title)
 	if title == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "제목을 입력해 주세요."})
 		return
 	}
-	title = strings.TrimSpace(title)
 	if len([]rune(title)) > 200 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "제목은 200자까지 입력할 수 있습니다."})
 		return
 	}
+	var dueDate *string
+	if rawDueDate, exists := input["dueDate"]; exists && string(rawDueDate) != "null" {
+		var value string
+		if err := json.Unmarshal(rawDueDate, &value); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "요청 형식이 올바르지 않습니다."})
+			return
+		}
+		if value != "" {
+			if !validDateFormat(value) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "마감일은 YYYY-MM-DD 형식으로 입력해 주세요."})
+				return
+			}
+			parsed, err := time.Parse("2006-01-02", value)
+			if err != nil || parsed.Format("2006-01-02") != value {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "달력에 없는 날짜입니다. 다시 확인해 주세요."})
+				return
+			}
+			dueDate = &value
+		}
+	}
 	s.mu.Lock()
-	item := Todo{ID: len(s.items) + 1, Title: title}
+	item := Todo{ID: len(s.items) + 1, Title: title, DueDate: dueDate}
 	s.items = append(s.items, item)
 	s.mu.Unlock()
 	writeJSON(w, http.StatusCreated, item)
+}
+
+func validDateFormat(value string) bool {
+	if len(value) != 10 || value[4] != '-' || value[7] != '-' {
+		return false
+	}
+	for i, r := range value {
+		if i == 4 || i == 7 {
+			continue
+		}
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func main() {
