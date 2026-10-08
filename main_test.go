@@ -265,3 +265,26 @@ func TestDueDateFormAndRendering(t *testing.T) {
 		}
 	}
 }
+
+
+// REQ-09: 보관 안내는 목록 아래 별도 문단으로 항상 화면에 포함된다.
+func TestStorageNoticeAlwaysAppearsBelowTodoList(t *testing.T) {
+	const notice = "할 일은 이 서버에만 잠시 보관되며, 서버를 다시 켜면 사라집니다."
+	h := (&todoStore{}).handler()
+	for _, body := range []string{"", `{"title":"회의 준비"}`} {
+		if body != "" {
+			created := request(t, h, http.MethodPost, body)
+			if created.Code != http.StatusCreated {
+				t.Fatalf("create status: %d %s", created.Code, created.Body)
+			}
+		}
+		page := httptest.NewRecorder()
+		h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+		html := page.Body.String()
+		listEnd := strings.Index(html, `</ul>`)
+		noticeAt := strings.Index(html, `<p>`+notice+`</p>`)
+		if page.Code != http.StatusOK || listEnd < 0 || noticeAt <= listEnd {
+			t.Fatalf("storage notice missing or not below list: status=%d", page.Code)
+		}
+	}
+}
